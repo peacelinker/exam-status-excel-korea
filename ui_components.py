@@ -245,7 +245,7 @@ def render_download_section(
     first, second = st.columns(2)
     with first:
         st.download_button(
-            "결과 엑셀 다운로드",
+            "붙여넣기용 결과 엑셀 다운로드",
             data=xlsx_bytes,
             file_name=xlsx_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
