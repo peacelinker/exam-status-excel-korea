@@ -1,0 +1,9 @@
+__pycache__/
+.pytest_cache__/
+.venv/
+.local-deps/
+.test-deps/
+.test-local/
+*.pyc
+ui_sample.xlsx
+streamlit.*.log
