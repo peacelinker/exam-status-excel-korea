@@ -11,6 +11,7 @@ from openpyxl import load_workbook
 
 from report_exporter import (
     AGGREGATE_HEADERS,
+    PASTE_REGION_ORDER,
     SHEET_NAMES,
     create_csv_bytes,
     create_result_workbook,
@@ -29,31 +30,52 @@ def test_result_workbook_has_exact_sheet_order(exported_workbook):
 
 def test_aggregate_column_order(exported_workbook):
     worksheet = exported_workbook["집계결과"]
-    assert [worksheet.cell(2, column).value for column in range(1, 11)] == AGGREGATE_HEADERS
+    assert [worksheet.cell(1, column).value for column in range(1, 11)] == AGGREGATE_HEADERS
+
+
+def test_aggregate_region_order_matches_paste_template(exported_workbook):
+    worksheet = exported_workbook["집계결과"]
+    assert [worksheet.cell(row, 1).value for row in range(2, 10)] == PASTE_REGION_ORDER
 
 
 def test_university_row_cells_are_real_blanks(exported_workbook):
     worksheet = exported_workbook["집계결과"]
-    university_row = next(row for row in range(3, worksheet.max_row + 1) if worksheet.cell(row, 1).value == "대학")
+    university_row = next(row for row in range(2, worksheet.max_row + 1) if worksheet.cell(row, 1).value == "대학")
     assert all(worksheet.cell(university_row, column).value is None for column in range(2, 11))
 
 
 def test_total_row_contains_verified_total(exported_workbook, sample_result):
     worksheet = exported_workbook["집계결과"]
-    assert worksheet.cell(worksheet.max_row, 1).value == "합계"
+    assert worksheet.cell(worksheet.max_row, 1).value == "전체"
     assert worksheet.cell(worksheet.max_row, 8).value == sample_result.total_counts.total_exam
 
 
 def test_target_and_ratio_total_cells_are_blank(exported_workbook):
     worksheet = exported_workbook["집계결과"]
-    assert worksheet.cell(worksheet.max_row, 2).value is None
+    assert worksheet.cell(worksheet.max_row, 7).value is None
     assert worksheet.cell(worksheet.max_row, 10).value is None
 
 
-def test_aggregate_sheet_has_freeze_and_filter(exported_workbook):
+def test_aggregate_sheet_is_plain_paste_range_without_filter(exported_workbook):
     worksheet = exported_workbook["집계결과"]
-    assert worksheet.freeze_panes == "A3"
-    assert worksheet.auto_filter.ref.startswith("A2:J")
+    assert worksheet.max_row == 10
+    assert worksheet.max_column == 10
+    assert worksheet.freeze_panes is None
+    assert worksheet.auto_filter.ref is None
+
+
+def test_missing_fixed_regions_are_zero_filled(exported_workbook):
+    worksheet = exported_workbook["집계결과"]
+    hapjeong_row = next(row for row in range(2, 10) if worksheet.cell(row, 1).value == "합정")
+    assert [worksheet.cell(hapjeong_row, column).value for column in range(2, 7)] == [0, 0, 0, 0, 0]
+    assert worksheet.cell(hapjeong_row, 8).value == 0
+    assert worksheet.cell(hapjeong_row, 9).value == 0
+
+
+def test_template_header_and_total_fills(exported_workbook):
+    worksheet = exported_workbook["집계결과"]
+    assert worksheet["A1"].fill.fgColor.rgb.endswith("DDEBF7")
+    assert worksheet["A10"].fill.fgColor.rgb.endswith("FFF200")
 
 
 def test_total_sheet_contains_absence_breakdown(exported_workbook, sample_result):
@@ -116,6 +138,13 @@ def test_csv_university_numeric_fields_are_empty(sample_result):
     rows = list(csv.DictReader(StringIO(text)))
     university = next(row for row in rows if row["지역"] == "대학")
     assert all(university[column] == "" for column in AGGREGATE_HEADERS[1:])
+
+
+def test_csv_uses_fixed_region_order_and_total_label(sample_result):
+    text = create_csv_bytes(sample_result).decode("utf-8-sig")
+    rows = list(csv.DictReader(StringIO(text)))
+    assert [row["지역"] for row in rows[:-1]] == PASTE_REGION_ORDER
+    assert rows[-1]["지역"] == "전체"
 
 
 def test_validation_failure_blocks_xlsx(sample_result):
