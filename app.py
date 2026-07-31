@@ -182,7 +182,7 @@ def main() -> None:
                     "result": result,
                     "xlsx_bytes": xlsx_bytes,
                     "csv_bytes": csv_bytes,
-                    "xlsx_filename": f"시험응시현황_집계결과_{sheet_part}_{timestamp}.xlsx",
+                    "xlsx_filename": f"시험응시현황_붙여넣기양식_{sheet_part}_{timestamp}.xlsx",
                     "csv_filename": f"시험응시현황_집계결과_{sheet_part}.csv",
                 }
         except AppError as exc:
@@ -218,7 +218,7 @@ def main() -> None:
         st.warning("수식 셀의 저장된 계산값이 없습니다. 특이사항에서 해당 행 범위를 확인하세요.", icon="⚠️")
 
     if result.validation_passed:
-        render_step_card(9, "결과 파일 다운로드", "새 XLSX 보고서와 UTF-8 BOM CSV를 내려받을 수 있습니다.")
+        render_step_card(9, "결과 파일 다운로드", "두 번째 참고 양식과 같은 붙여넣기용 XLSX와 CSV를 내려받을 수 있습니다.")
         render_download_section(
             xlsx_bytes=bundle["xlsx_bytes"],
             xlsx_filename=bundle["xlsx_filename"],
