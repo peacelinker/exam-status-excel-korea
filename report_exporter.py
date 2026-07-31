@@ -15,16 +15,17 @@ from utils import AppError, compress_row_numbers
 
 AGGREGATE_HEADERS = [
     "지역",
-    "전체 응시목표",
     "정규응시",
     "대면응시",
     "일대일응시",
-    "서면응시",
-    "비공식응시",
+    "서면 응시",
+    "비공식 응시",
+    "전체 응시목표",
     "전체응시",
     "미응시자",
     "전도 재적대비 %",
 ]
+PASTE_REGION_ORDER = ["서대문", "마포", "합정", "새신", "신촌", "홍대", "대학", "소성"]
 SHEET_NAMES = [
     "집계결과",
     "전체합계",
@@ -45,6 +46,15 @@ SUCCESS = "DDF5E7"
 WARNING = "FFF1D6"
 TOTAL = "FFF4B8"
 THIN_BORDER = Border(bottom=Side(style="thin", color=GRID))
+PASTE_HEADER = "DDEBF7"
+PASTE_TOTAL = "FFF200"
+PASTE_GRID = "000000"
+PASTE_BORDER = Border(
+    left=Side(style="thin", color=PASTE_GRID),
+    right=Side(style="thin", color=PASTE_GRID),
+    top=Side(style="thin", color=PASTE_GRID),
+    bottom=Side(style="thin", color=PASTE_GRID),
+)
 
 
 def _sheet(workbook: Workbook, name: str):
@@ -110,44 +120,101 @@ def _autosize(worksheet, *, max_width: int = 48) -> None:
         worksheet.column_dimensions[column_letter].width = min(max(length + 3, 10), max_width)
 
 
+def _paste_ready_rows(result: AnalysisResult) -> list[dict[str, object]]:
+    """두 번째 참고 이미지의 고정 지역·열 순서에 맞는 붙여넣기용 행을 만든다."""
+
+    by_region = {item.region: item for item in result.region_results}
+    unsupported = [region for region in by_region if region not in PASTE_REGION_ORDER]
+    if unsupported:
+        raise AppError(
+            "붙여넣기 양식에 없는 지역이 있습니다: " + ", ".join(unsupported)
+        )
+
+    rows: list[dict[str, object]] = []
+    for region in PASTE_REGION_ORDER:
+        region_result = by_region.get(region)
+        if region == "대학" or (region_result and region_result.is_manual_region):
+            values = [region, None, None, None, None, None, None, None, None, None]
+        else:
+            counts = region_result.counts if region_result else None
+            values = [
+                region,
+                counts.regular_total if counts else 0,
+                counts.face_to_face if counts else 0,
+                counts.one_to_one if counts else 0,
+                counts.written if counts else 0,
+                counts.informal if counts else 0,
+                None,
+                counts.total_exam if counts else 0,
+                counts.absent_total if counts else 0,
+                None,
+            ]
+        rows.append(dict(zip(AGGREGATE_HEADERS, values)))
+    return rows
+
+
+def _paste_ready_total_row(result: AnalysisResult) -> dict[str, object]:
+    """붙여넣기 양식의 마지막 전체 행을 만든다."""
+
+    counts = result.total_counts
+    values = [
+        "전체",
+        counts.regular_total,
+        counts.face_to_face,
+        counts.one_to_one,
+        counts.written,
+        counts.informal,
+        None,
+        counts.total_exam,
+        counts.absent_total,
+        None,
+    ]
+    return dict(zip(AGGREGATE_HEADERS, values))
+
+
 def write_aggregate_sheet(workbook: Workbook, result: AnalysisResult) -> None:
-    """지역별 고정 컬럼 결과, 대학 공란 행, 전체 합계를 작성한다."""
+    """참고 양식과 같은 A1:J10 붙여넣기용 결과 표를 작성한다."""
 
     worksheet = _sheet(workbook, "집계결과")
-    _title(worksheet, "시험 응시 현황 지역별 집계 결과", len(AGGREGATE_HEADERS))
-    _header(worksheet, 2, AGGREGATE_HEADERS)
-    row_number = 3
-    manual_rows: list[int] = []
-    for region_result in result.region_results:
-        values = list(region_result.as_row().values())
-        for column, value in enumerate(values, start=1):
-            worksheet.cell(row_number, column, value)
-        if region_result.is_manual_region:
-            manual_rows.append(row_number)
-            worksheet.cell(row_number, 2).comment = Comment(
-                "대학 지역은 별도 시트에서 수기로 입력합니다. 자동 집계 수치와 전체 합계에서 제외됩니다.",
-                "자동 집계기",
-            )
-        row_number += 1
+    worksheet.sheet_view.showGridLines = False
 
-    total_values = list(result.aggregate_rows(include_total=True)[-1].values())
-    for column, value in enumerate(total_values, start=1):
-        cell = worksheet.cell(row_number, column, value)
-        cell.font = Font(name="맑은 고딕", bold=True, color=NAVY)
-        cell.fill = PatternFill("solid", fgColor=TOTAL)
-        cell.border = THIN_BORDER
-        if isinstance(value, (int, float)):
-            cell.number_format = "#,##0"
+    for column, value in enumerate(AGGREGATE_HEADERS, start=1):
+        worksheet.cell(1, column, value)
 
-    _format_body(worksheet, 3, max(3, row_number - 1), len(AGGREGATE_HEADERS))
-    for manual_row in manual_rows:
-        for column in range(1, len(AGGREGATE_HEADERS) + 1):
-            worksheet.cell(manual_row, column).fill = PatternFill("solid", fgColor=WARNING)
-    worksheet.freeze_panes = "A3"
-    worksheet.auto_filter.ref = f"A2:J{row_number}"
-    worksheet.column_dimensions["A"].width = 16
-    for column in range(2, 11):
-        worksheet.column_dimensions[get_column_letter(column)].width = 17
+    rows = _paste_ready_rows(result)
+    rows.append(_paste_ready_total_row(result))
+    for row_number, row in enumerate(rows, start=2):
+        for column, header in enumerate(AGGREGATE_HEADERS, start=1):
+            worksheet.cell(row_number, column, row[header])
+
+    for row in range(1, 11):
+        for column in range(1, 11):
+            cell = worksheet.cell(row, column)
+            cell.font = Font(name="맑은 고딕", size=9, color="000000")
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = PASTE_BORDER
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = "#,##0"
+
+    for cell in worksheet[1]:
+        cell.fill = PatternFill("solid", fgColor=PASTE_HEADER)
+    for cell in worksheet[10]:
+        cell.fill = PatternFill("solid", fgColor=PASTE_TOTAL)
+
+    worksheet["A8"].comment = Comment(
+        "대학은 수기 입력용 공란 행이며 자동 집계와 전체 합계에서 제외됩니다.",
+        "자동 집계기",
+    )
+    worksheet.row_dimensions[1].height = 19
+    for row in range(2, 11):
+        worksheet.row_dimensions[row].height = 18
+    widths = [11, 11, 11, 12, 11, 12, 14, 11, 11, 15]
+    for column, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[get_column_letter(column)].width = width
+    worksheet.print_area = "A1:J10"
+    worksheet.page_setup.orientation = "landscape"
+    worksheet.page_setup.fitToWidth = 1
+    worksheet.page_setup.fitToHeight = 1
 
 
 def write_total_sheet(workbook: Workbook, result: AnalysisResult) -> None:
@@ -368,13 +435,13 @@ def create_result_workbook(result: AnalysisResult) -> bytes:
 
 
 def create_csv_bytes(result: AnalysisResult) -> bytes:
-    """집계결과와 같은 컬럼의 UTF-8 BOM CSV 바이트를 생성한다."""
+    """붙여넣기용 집계결과와 같은 순서의 UTF-8 BOM CSV 바이트를 생성한다."""
 
     if not result.validation_passed:
         raise AppError("두 가지 검산 결과가 일치하지 않습니다.")
     stream = StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=AGGREGATE_HEADERS, extrasaction="ignore")
     writer.writeheader()
-    for row in result.aggregate_rows(include_total=True):
+    for row in [*_paste_ready_rows(result), _paste_ready_total_row(result)]:
         writer.writerow({key: "" if value is None else value for key, value in row.items()})
     return stream.getvalue().encode("utf-8-sig")
