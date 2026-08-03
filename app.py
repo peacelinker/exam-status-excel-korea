@@ -29,7 +29,7 @@ from utils import (
     log_safe_exception,
     safe_filename_part,
 )
-from worship_analyzer import analyze_worship_sheet, discover_worship_sheets
+from worship_analyzer import analyze_worship_sheet, count_worship_rosters, discover_worship_sheets
 from worship_exporter import create_worship_csv, create_worship_workbook
 from worship_models import WORSHIP_REGIONS
 
@@ -269,6 +269,7 @@ def _render_worship_result_table(result) -> None:
     for item in result.aggregate_rows(include_total=True):
         rows.append(
             {
+                "재적": "" if item["재적"] is None else item["재적"],
                 "지역": item["지역"],
                 "대면": item["대면"],
                 "퍼센트(대면)": _format_percent(item["퍼센트"]),
@@ -285,7 +286,7 @@ def _render_worship_result_table(result) -> None:
 
 
 def _render_worship_analysis() -> None:
-    """구역예배 A·D·H 실제 셀 집계와 재적 수기 입력 흐름을 실행한다."""
+    """구역예배 A·D·H 실제 셀 집계와 자동 재적 확인 흐름을 실행한다."""
 
     bundle = st.session_state.get("worship_bundle")
     render_progress(4 if bundle and bundle.get("result") else 1)
@@ -322,7 +323,7 @@ def _render_worship_analysis() -> None:
     render_step_card(
         2,
         "구역예배 시트 선택",
-        "모든 시트를 검사하되 A·D·H 열과 D열 이름 데이터가 있는 시트만 분석할 수 있습니다.",
+        "‘지역전체’ 또는 0726처럼 이름이 정확히 네 자리 숫자인 시트만 표시합니다.",
     )
     _render_worship_candidates(candidates)
     analyzable = [candidate for candidate in candidates if candidate.is_analyzable]
@@ -342,12 +343,19 @@ def _render_worship_analysis() -> None:
     selected_candidate = next(item for item in analyzable if item.name == selected_sheet)
     render_header_checks(selected_candidate.header_checks)
 
+    try:
+        auto_rosters = count_worship_rosters(file_bytes, selected_sheet)
+    except AppError as exc:
+        st.error(str(exc), icon="🚫")
+        return
+
     render_step_card(
         3,
-        "지역별 재적 수기 입력",
-        "재적을 모르는 지역은 비워 두세요. 해당 지역은 대면·줌·전화 인원만 집계하고 퍼센트와 미참여는 빈칸으로 만듭니다.",
+        "지역별 재적 자동 입력 및 확인",
+        "A열 지역과 D열 이름이 있는 실제 행 수를 지역원 총원으로 넣었습니다. 필요하면 수정하거나 비워 둘 수 있습니다.",
     )
     st.caption("집계 기준: H열이 정확히 ‘대면모임’이면 대면, ‘줌’이면 줌, ‘통화’이면 전화")
+    st.caption("재적 기준: H열 값과 관계없이 A열이 해당 지역이고 D열 이름이 있는 행 수")
     raw_rosters: dict[str, str] = {}
     first_row = st.columns(4)
     second_row = st.columns(3)
@@ -357,18 +365,13 @@ def _render_worship_analysis() -> None:
         with columns[column_index]:
             raw_rosters[region] = st.text_input(
                 f"{region} 재적",
+                value=str(auto_rosters[region]),
                 placeholder="공란 가능",
                 key=f"worship_roster:{file_digest}:{selected_sheet}:{region}",
             )
 
-    default_title = selected_sheet if "구역예배" in selected_sheet else f"{selected_sheet} 구역예배 성인"
-    report_title = st.text_input(
-        "결과 표 제목",
-        value=default_title,
-        help="결과 엑셀 첫 행의 제목입니다. 예: 7/20-7/26 구역예배 성인",
-        key=f"worship_title:{file_digest}:{selected_sheet}",
-    )
-    analysis_key = f"worship:{file_digest}:{selected_sheet}:{report_title}:{tuple(raw_rosters.items())}"
+    report_title = f"{selected_sheet} 구역예배 성인"
+    analysis_key = f"worship:{file_digest}:{selected_sheet}:{tuple(raw_rosters.items())}"
     _clear_stale_worship_result(analysis_key)
 
     analyze_clicked = st.button(
@@ -458,7 +461,7 @@ def _render_worship_analysis() -> None:
         st.info("제외된 행이 없습니다.", icon="ℹ️")
 
     if result.validation_passed:
-        render_step_card(6, "결과 파일 다운로드", "참고 이미지와 같은 10열 XLSX와 CSV를 내려받을 수 있습니다.")
+        render_step_card(6, "결과 파일 다운로드", "재적을 첫 열에 넣은 11열 XLSX와 CSV를 내려받을 수 있습니다.")
         first, second = st.columns(2)
         with first:
             st.download_button(
