@@ -304,7 +304,7 @@ def _render_worship_analysis() -> None:
     )
     if uploaded_file is None:
         st.button("구역예배 분석 실행", disabled=True, use_container_width=True)
-        st.info("엑셀 파일을 업로드하면 모든 시트의 A·D·H 열을 확인합니다.", icon="📎")
+        st.info("엑셀 파일을 업로드하면 ‘지역전체’와 네 자리 숫자 시트의 A·D·H 열을 확인합니다.", icon="📎")
         return
 
     try:
