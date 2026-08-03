@@ -85,6 +85,7 @@ class WorshipRegionResult:
 
     def as_row(self) -> dict[str, Any]:
         return {
+            "재적": self.roster,
             "지역": self.region,
             "대면": self.counts.face_to_face,
             "퍼센트": self.face_percent,
@@ -140,7 +141,7 @@ class WorshipAnalysisResult:
     filter_applied: bool
     formula_without_cached_value_count: int
     analyzed_at: datetime
-    rule_version: str = "1.0"
+    rule_version: str = "1.1"
 
     @property
     def validation_passed(self) -> bool:
@@ -179,6 +180,7 @@ class WorshipAnalysisResult:
             return count / roster
 
         return {
+            "재적": roster,
             "지역": "전체",
             "대면": self.total_counts.face_to_face,
             "퍼센트": percent(self.total_counts.face_to_face),
