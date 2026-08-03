@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import re
 from typing import Iterable
 
 from models import HeaderCheck
@@ -19,6 +20,7 @@ from worship_models import (
 )
 
 HEADER_ROW = 1
+WORSHIP_SHEET_PATTERN = re.compile(r"^\d{4}$")
 FACE_TO_FACE_VALUE = "대면모임"
 ZOOM_VALUE = "줌"
 PHONE_VALUE = "통화"
@@ -96,11 +98,13 @@ def discover_worship_sheets(
     *,
     header_row: int = HEADER_ROW,
 ) -> list[WorshipSheetCandidate]:
-    """워크북의 모든 시트를 검사해 A·D·H 기반 분석 후보를 반환한다."""
+    """`지역전체` 또는 정확히 네 자리 숫자 이름인 분석 후보만 반환한다."""
 
     workbook = open_workbook_from_bytes(file_bytes, data_only=True)
     candidates: list[WorshipSheetCandidate] = []
     for worksheet in workbook.worksheets:
+        if worksheet.title != "지역전체" and not WORSHIP_SHEET_PATTERN.fullmatch(worksheet.title):
+            continue
         checks = validate_worship_headers(worksheet, header_row=header_row)
         name_rows = attendance_rows = blank_attendance_rows = 0
         for row_number in range(header_row + 1, worksheet.max_row + 1):
@@ -133,9 +137,11 @@ def discover_worship_sheets(
             )
         )
     analyzable = [item for item in candidates if item.is_analyzable]
-    if analyzable:
-        preferred = [item for item in analyzable if item.attendance_rows]
-        (preferred or analyzable)[-1].recommended = True
+    dated = [item for item in analyzable if WORSHIP_SHEET_PATTERN.fullmatch(item.name)]
+    if dated:
+        max(dated, key=lambda item: int(item.name)).recommended = True
+    elif analyzable:
+        analyzable[0].recommended = True
     return candidates
 
 
@@ -271,6 +277,33 @@ def _normalize_rosters(rosters: dict[str, int | None] | None) -> dict[str, int |
     return normalized
 
 
+def _count_rosters_from_rows(rows: Iterable[WorshipDataRow]) -> dict[str, int]:
+    """A열 지역과 D열 이름이 있는 실제 데이터 행을 지역원 총원으로 센다."""
+
+    counts = {region: 0 for region in WORSHIP_REGIONS}
+    for row in rows:
+        if not row.completely_blank and row.name and row.region in counts:
+            counts[row.region] += 1
+    return counts
+
+
+def count_worship_rosters(
+    file_bytes: bytes,
+    selected_sheet: str,
+    *,
+    header_row: int = HEADER_ROW,
+) -> dict[str, int]:
+    """선택 시트의 실제 셀에서 지역별 재적 기본값을 계산한다."""
+
+    candidates = discover_worship_sheets(file_bytes, header_row=header_row)
+    candidate = next((item for item in candidates if item.name == selected_sheet), None)
+    if candidate is None or not candidate.is_analyzable:
+        raise AppError("분석 가능한 구역예배 시트를 선택해 주세요.")
+    workbook = open_workbook_from_bytes(file_bytes, data_only=True)
+    rows = _read_rows(workbook[selected_sheet], header_row=header_row)
+    return _count_rosters_from_rows(rows)
+
+
 def _formula_without_cache_rows(raw_worksheet, data_worksheet, rows: list[WorshipDataRow]) -> list[int]:
     missing: list[int] = []
     for row in rows:
@@ -288,7 +321,7 @@ def analyze_worship_sheet(
     selected_sheet: str,
     *,
     rosters: dict[str, int | None] | None = None,
-    report_title: str = "구역예배 성인",
+    report_title: str | None = None,
     source_filename: str = "업로드.xlsx",
     header_row: int = HEADER_ROW,
 ) -> WorshipAnalysisResult:
@@ -309,7 +342,8 @@ def analyze_worship_sheet(
 
     first = aggregate_by_row_iteration(rows)
     second = aggregate_by_conditional_count(rows)
-    normalized_rosters = _normalize_rosters(rosters)
+    auto_rosters = _count_rosters_from_rows(rows)
+    normalized_rosters = _normalize_rosters(auto_rosters if rosters is None else rosters)
     region_results = [
         WorshipRegionResult(region, first[region], normalized_rosters[region])
         for region in WORSHIP_REGIONS
@@ -320,7 +354,7 @@ def analyze_worship_sheet(
         if worksheet.row_dimensions[row.row_number].hidden
     ]
     formula_missing = _formula_without_cache_rows(raw_worksheet, worksheet, rows)
-    title = report_title.strip() or "구역예배 성인"
+    title = (report_title or "").strip() or f"{selected_sheet} 구역예배 성인"
 
     return WorshipAnalysisResult(
         source_filename=source_filename,
