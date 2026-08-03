@@ -9,7 +9,7 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from utils import AppError
-from worship_analyzer import analyze_worship_sheet, discover_worship_sheets
+from worship_analyzer import analyze_worship_sheet, count_worship_rosters, discover_worship_sheets
 from worship_exporter import create_worship_csv, create_worship_workbook
 from worship_models import WORSHIP_REGIONS
 
@@ -20,7 +20,7 @@ def _workbook_bytes() -> bytes:
     guide.title = "안내"
     guide["A1"] = "안내"
 
-    worksheet = workbook.create_sheet("7월4주")
+    worksheet = workbook.create_sheet("0726")
     worksheet["A1"] = "지역"
     worksheet["D1"] = "이름"
     worksheet["H1"] = "참여방법"
@@ -61,7 +61,7 @@ def worship_bytes() -> bytes:
 def worship_result(worship_bytes):
     return analyze_worship_sheet(
         worship_bytes,
-        "7월4주",
+        "0726",
         rosters={
             "서대문": 10,
             "마포": None,
@@ -76,12 +76,32 @@ def worship_result(worship_bytes):
     )
 
 
-def test_discovers_only_sheet_with_name_rows(worship_bytes):
+def test_discovers_only_allowed_sheet_names(worship_bytes):
     candidates = discover_worship_sheets(worship_bytes)
     by_name = {item.name: item for item in candidates}
-    assert not by_name["안내"].is_analyzable
-    assert by_name["7월4주"].is_analyzable
-    assert by_name["7월4주"].recommended
+    assert list(by_name) == ["0726"]
+    assert by_name["0726"].is_analyzable
+    assert by_name["0726"].recommended
+
+
+def test_counts_named_region_rows_as_automatic_roster(worship_bytes):
+    assert count_worship_rosters(worship_bytes, "0726") == {
+        "서대문": 4,
+        "마포": 1,
+        "합정": 1,
+        "새신": 1,
+        "신촌": 1,
+        "홍대": 1,
+        "소성": 1,
+    }
+
+
+def test_uses_automatic_rosters_when_not_manually_supplied(worship_bytes):
+    result = analyze_worship_sheet(worship_bytes, "0726")
+    assert result.total_roster == 10
+    assert result.total_absent == 2
+    assert result.total_attendance_percent == pytest.approx(0.8)
+    assert result.report_title == "0726 구역예배 성인"
 
 
 def test_counts_actual_a_d_h_cells_only(worship_result):
@@ -137,12 +157,12 @@ def test_unexpected_blank_and_unsupported_rows_are_audited(worship_result):
 
 def test_invalid_roster_is_rejected(worship_bytes):
     with pytest.raises(AppError, match="0 이상의 정수"):
-        analyze_worship_sheet(worship_bytes, "7월4주", rosters={"서대문": -1})
+        analyze_worship_sheet(worship_bytes, "0726", rosters={"서대문": -1})
 
 
 def test_original_bytes_are_unchanged(worship_bytes):
     before = hashlib.sha256(worship_bytes).hexdigest()
-    result = analyze_worship_sheet(worship_bytes, "7월4주")
+    result = analyze_worship_sheet(worship_bytes, "0726")
     create_worship_workbook(result)
     create_worship_csv(result)
     assert hashlib.sha256(worship_bytes).hexdigest() == before
@@ -153,29 +173,31 @@ def test_output_workbook_matches_target_layout(worship_result):
     workbook = load_workbook(BytesIO(output), data_only=True)
     worksheet = workbook["구역예배결과"]
     assert worksheet["A1"].value == "7/20-7/26 구역예배 성인"
-    assert "A1:J1" in {str(item) for item in worksheet.merged_cells.ranges}
-    assert [worksheet.cell(2, column).value for column in range(1, 11)] == [
-        "지역", "대면", "퍼센트", "줌", "퍼센트", "전화", "퍼센트", "전체", "미참여", "출결 재적대비 %"
+    assert "A1:K1" in {str(item) for item in worksheet.merged_cells.ranges}
+    assert [worksheet.cell(2, column).value for column in range(1, 12)] == [
+        "재적", "지역", "대면", "퍼센트", "줌", "퍼센트", "전화", "퍼센트", "전체", "미참여", "출결 재적대비 %"
     ]
-    assert worksheet["A3"].value == "서대문"
-    assert worksheet["B3"].value == 2
-    assert worksheet["C3"].value == pytest.approx(0.2)
-    assert worksheet["C3"].number_format == "0.0%"
-    assert worksheet["A4"].value == "마포"
-    assert worksheet["D4"].value == 1
-    assert worksheet["E4"].value is None
-    assert worksheet["I4"].value is None
+    assert worksheet["A3"].value == 10
+    assert worksheet["B3"].value == "서대문"
+    assert worksheet["C3"].value == 2
+    assert worksheet["D3"].value == pytest.approx(0.2)
+    assert worksheet["D3"].number_format == "0.0%"
+    assert worksheet["A4"].value is None
+    assert worksheet["B4"].value == "마포"
+    assert worksheet["E4"].value == 1
+    assert worksheet["F4"].value is None
     assert worksheet["J4"].value is None
-    assert worksheet["A10"].value == "전체"
-    assert worksheet["H10"].value == 8
-    assert worksheet["J10"].value is None
+    assert worksheet["K4"].value is None
+    assert worksheet["B10"].value == "전체"
+    assert worksheet["I10"].value == 8
+    assert worksheet["K10"].value is None
     assert worksheet["A10"].fill.fgColor.rgb.endswith("FFF200")
 
 
 def test_all_rosters_enable_total_percentages(worship_bytes):
     result = analyze_worship_sheet(
         worship_bytes,
-        "7월4주",
+        "0726",
         rosters={region: 10 for region in WORSHIP_REGIONS},
     )
     assert result.total_roster == 70
@@ -187,6 +209,6 @@ def test_csv_is_bom_encoded_and_preserves_blank_percentages(worship_result):
     output = create_worship_csv(worship_result)
     assert output.startswith(b"\xef\xbb\xbf")
     text = output.decode("utf-8-sig")
-    mapo = next(line for line in text.splitlines() if line.startswith("마포,"))
-    assert mapo == "마포,0,,1,,0,,1,,"
+    mapo = next(line for line in text.splitlines() if line.startswith(",마포,"))
+    assert mapo == ",마포,0,,1,,0,,1,,"
 
