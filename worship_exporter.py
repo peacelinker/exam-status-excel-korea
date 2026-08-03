@@ -12,7 +12,7 @@ from openpyxl.utils import get_column_letter
 from utils import AppError
 from worship_models import WorshipAnalysisResult
 
-HEADERS = ["지역", "대면", "퍼센트", "줌", "퍼센트", "전화", "퍼센트", "전체", "미참여", "출결 재적대비 %"]
+HEADERS = ["재적", "지역", "대면", "퍼센트", "줌", "퍼센트", "전화", "퍼센트", "전체", "미참여", "출결 재적대비 %"]
 TITLE_FILL = "E5B8C3"
 HEADER_FILL = "EAC5CF"
 TOTAL_FILL = "FFF200"
@@ -31,6 +31,7 @@ TABLE_BORDER = Border(
 
 def _row_values(row: dict[str, object]) -> list[object]:
     return [
+        row["재적"],
         row["지역"],
         row["대면"],
         row["퍼센트"],
@@ -48,7 +49,7 @@ def _write_primary_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> N
     worksheet = workbook.active
     worksheet.title = "구역예배결과"
     worksheet.sheet_view.showGridLines = False
-    worksheet.merge_cells("A1:J1")
+    worksheet.merge_cells("A1:K1")
     worksheet["A1"] = result.report_title
     worksheet["A1"].font = Font(name="맑은 고딕", size=10, bold=True, color=BLACK)
     worksheet["A1"].alignment = Alignment(horizontal="center", vertical="center")
@@ -63,7 +64,7 @@ def _write_primary_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> N
             worksheet.cell(row_number, column, value)
 
     for row_number in range(1, 11):
-        for column in range(1, 11):
+        for column in range(1, 12):
             cell = worksheet.cell(row_number, column)
             cell.font = Font(name="맑은 고딕", size=9, bold=row_number in (1, 2, 10), color=BLACK)
             cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -72,20 +73,20 @@ def _write_primary_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> N
                 cell.fill = PatternFill("solid", fgColor=HEADER_FILL)
             elif row_number == 10:
                 cell.fill = PatternFill("solid", fgColor=TOTAL_FILL)
-            if column in (3, 5, 7, 10) and row_number >= 3:
+            if column in (4, 6, 8, 11) and row_number >= 3:
                 cell.number_format = "0.0%"
-            elif column >= 2 and row_number >= 3:
+            elif column != 2 and row_number >= 3:
                 cell.number_format = "#,##0"
 
     worksheet.row_dimensions[1].height = 19
     worksheet.row_dimensions[2].height = 19
     for row_number in range(3, 11):
         worksheet.row_dimensions[row_number].height = 18
-    widths = [10, 8, 10, 8, 10, 8, 10, 9, 9, 15]
+    widths = [9, 10, 8, 10, 8, 10, 8, 10, 9, 9, 15]
     for column, width in enumerate(widths, start=1):
         worksheet.column_dimensions[get_column_letter(column)].width = width
     worksheet.freeze_panes = "A3"
-    worksheet.print_area = "A1:J10"
+    worksheet.print_area = "A1:K10"
     worksheet.page_setup.orientation = "landscape"
     worksheet.page_setup.fitToWidth = 1
     worksheet.page_setup.fitToHeight = 1
@@ -121,14 +122,14 @@ def _autosize(worksheet, columns: int) -> None:
 
 def _write_roster_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> None:
     worksheet = workbook.create_sheet("재적검산")
-    headers = ["지역", "재적 수기입력", "대면", "줌", "전화", "전체", "미참여", "대면 %", "줌 %", "전화 %", "출결 %"]
+    headers = ["재적", "지역", "대면", "줌", "전화", "전체", "미참여", "대면 %", "줌 %", "전화 %", "출결 %"]
     _report_title(worksheet, "지역별 재적 및 출결 검산", len(headers))
     _report_header(worksheet, headers)
     rows = [*result.region_results]
     for row_number, item in enumerate(rows, start=3):
         values = [
-            item.region,
             item.roster,
+            item.region,
             item.counts.face_to_face,
             item.counts.zoom,
             item.counts.phone,
@@ -143,8 +144,8 @@ def _write_roster_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> No
             worksheet.cell(row_number, column, value)
     total = result.total_row()
     total_values = [
-        "전체",
         result.total_roster,
+        "전체",
         total["대면"],
         total["줌"],
         total["전화"],
@@ -162,7 +163,7 @@ def _write_roster_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> No
             cell = worksheet.cell(row, column)
             cell.font = Font(name="맑은 고딕", size=10, bold=row == 10)
             cell.border = Border(bottom=Side(style="thin", color=GRID))
-            cell.alignment = Alignment(horizontal="right" if column > 1 else "left")
+            cell.alignment = Alignment(horizontal="left" if column == 2 else "right")
             if column >= 8:
                 cell.number_format = "0.0%"
         if row == 10:
@@ -195,6 +196,7 @@ def _write_info_sheet(workbook: Workbook, result: WorshipAnalysisResult) -> None
         ("원본 파일명", result.source_filename),
         ("선택한 시트명", result.selected_sheet),
         ("분석 열", "A열 지역 · D열 이름 · H열 참여방식"),
+        ("재적 자동값", "A열이 대상 지역이고 D열 이름이 있는 실제 행 수"),
         ("대면 기준값", "대면모임"),
         ("줌 기준값", "줌"),
         ("전화 기준값", "통화"),
@@ -247,7 +249,7 @@ def create_worship_csv(result: WorshipAnalysisResult) -> bytes:
     writer.writerow(HEADERS)
     for row in result.aggregate_rows(include_total=True):
         values = _row_values(row)
-        for index in (2, 4, 6, 9):
+        for index in (3, 5, 7, 10):
             values[index] = _csv_percent(values[index])
         writer.writerow(["" if value is None else value for value in values])
     return stream.getvalue().encode("utf-8-sig")
