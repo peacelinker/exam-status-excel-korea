@@ -50,7 +50,7 @@ class WorshipCounts:
 
 @dataclass
 class WorshipRegionResult:
-    """고정 지역 한 곳의 집계값과 사용자가 입력한 재적."""
+    """고정 지역 한 곳의 집계값과 자동 계수 후 사용자가 확인한 재적."""
 
     region: str
     counts: WorshipCounts = field(default_factory=WorshipCounts)
