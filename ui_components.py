@@ -26,8 +26,8 @@ def render_header() -> None:
         """
         <header class="app-hero">
           <div class="eyebrow">EXCEL WORKFLOW · 실제 셀 데이터 기반</div>
-          <h1>시험 응시 현황 엑셀 자동 집계기</h1>
-          <p class="hero-description">엑셀의 실제 셀 데이터를 기준으로 지역별 시험 응시 현황을 집계하고 결과 엑셀 파일을 생성합니다.</p>
+          <h1>시험·구역예배 엑셀 자동 집계기</h1>
+          <p class="hero-description">엑셀의 실제 셀 데이터를 기준으로 시험 응시 또는 구역예배 출결을 지역별로 집계하고 결과 엑셀 파일을 생성합니다.</p>
           <div class="privacy-note">원본 파일은 수정하지 않으며, 업로드된 바이트는 현재 앱 실행 메모리에서만 처리합니다.</div>
         </header>
         """,
@@ -260,3 +260,4 @@ def render_download_section(
             mime="text/csv; charset=utf-8",
             use_container_width=True,
         )
+
